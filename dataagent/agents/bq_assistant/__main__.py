@@ -537,6 +537,7 @@ async def list_sessions_handler(request: Request):
         return JSONResponse({"error": "Auth required"}, status_code=401)
 
     user_id = _email_to_user_id(auth_email)
+    logger.info(f"[Sessions] Listing sessions for user_id={user_id} (email={auth_email})")
     try:
         response = await _runner.session_service.list_sessions(
             app_name=_runner.app_name, user_id=user_id
@@ -545,12 +546,16 @@ async def list_sessions_handler(request: Request):
         logger.error(f"[Sessions] list_sessions failed: {e}")
         return JSONResponse({"conversations": []})
 
+    logger.info(f"[Sessions] Found {len(response.sessions)} sessions")
     conversations = []
     for session in response.sessions:
+        title = session.state.get("conversation_title", "New conversation")
+        last_active = session.last_update_time
+        logger.info(f"[Sessions]   - {session.id[:12]}... title='{title}' last_active={last_active} (type={type(last_active).__name__})")
         conversations.append({
             "id": session.id,
-            "title": session.state.get("conversation_title", "New conversation"),
-            "last_active": session.last_update_time,
+            "title": title,
+            "last_active": last_active,
             "default_dataset": session.state.get("default_dataset"),
         })
 
@@ -781,7 +786,9 @@ async def a2a_proxy_handler(request: Request):
                     if current_text:
                         final_text = current_text
 
-            # Auto-title: after the first exchange, set the conversation title
+            # Auto-title: after the first exchange, set the conversation title.
+            # We must update the DB directly because modifying session.state
+            # in-memory does NOT auto-persist with DatabaseSessionService.
             try:
                 updated_session = await _runner.session_service.get_session(
                     app_name=_runner.app_name,
@@ -792,9 +799,27 @@ async def a2a_proxy_handler(request: Request):
                     title = query[:60].strip()
                     if len(query) > 60:
                         title += "..."
-                    updated_session.state["conversation_title"] = title
-            except Exception:
-                pass
+                    # Direct DB update for title persistence
+                    import json as _json
+                    from sqlalchemy import text as _sql_text
+                    async with _runner.session_service.database_session_factory() as sql_sess:
+                        # Read current state, merge title, write back
+                        result = await sql_sess.execute(
+                            _sql_text("SELECT state FROM sessions WHERE app_name = :app AND user_id = :uid AND id = :sid"),
+                            {"app": _runner.app_name, "uid": user_id, "sid": session_id}
+                        )
+                        row = result.fetchone()
+                        if row:
+                            current_state = _json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                            current_state["conversation_title"] = title
+                            await sql_sess.execute(
+                                _sql_text("UPDATE sessions SET state = :state WHERE app_name = :app AND user_id = :uid AND id = :sid"),
+                                {"state": _json.dumps(current_state), "app": _runner.app_name, "uid": user_id, "sid": session_id}
+                            )
+                            await sql_sess.commit()
+                            logger.info(f"[Sessions] Auto-titled session {session_id[:8]}... -> '{title}'")
+            except Exception as e:
+                logger.warning(f"[Sessions] Auto-title failed: {e}")
 
             # Gather a2ui payloads from module-level variable.
             # This bypasses ADK session state which doesn't reliably

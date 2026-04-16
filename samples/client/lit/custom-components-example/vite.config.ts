@@ -68,6 +68,16 @@ export default async () => {
     },
     server: {
       host: true, // Listen on all network interfaces (0.0.0.0), enabling both localhost and 127.0.0.1 simultaneously
+      proxy: {
+        '/sessions': {
+          target: 'http://localhost:10005',
+          changeOrigin: true,
+        },
+        '/auth': {
+          target: 'http://localhost:10005',
+          changeOrigin: true,
+        },
+      },
     },
   } satisfies UserConfig;
 };

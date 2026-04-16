@@ -65,10 +65,12 @@ const createOrGetClient = async () => {
 };
 
 export const plugin = (): Plugin => {
-  // Generic proxy helper for forwarding requests to the Python backend
-  const proxyToBackend = () => {
-    return async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
-      const backendUrl = `http://localhost:10005${(req as any).url || req.url}`;
+  // Generic proxy helper for forwarding requests to the Python backend.
+  // Vite's connect middleware strips the mount path from req.url,
+  // so we must prepend it back when constructing the backend URL.
+  const proxyToBackend = (mountPath: string) => {
+    return async (req: IncomingMessage, res: ServerResponse, _next: () => void) => {
+      const backendUrl = `http://localhost:10005${mountPath}${(req as any).url || ''}`;
       const authHeader = req.headers['authorization'] || '';
       try {
         const headers: Record<string, string> = {};
@@ -88,13 +90,14 @@ export const plugin = (): Plugin => {
         const fetchOpts: RequestInit = { method: req.method || 'GET', headers };
         if (body) fetchOpts.body = body;
 
+        console.log(`[proxy] ${req.method} ${backendUrl}`);
         const backendResponse = await fetch(backendUrl, fetchOpts);
         const data = await backendResponse.text();
         res.statusCode = backendResponse.status;
         res.setHeader('Content-Type', backendResponse.headers.get('content-type') || 'application/json');
         res.end(data);
       } catch (e: any) {
-        console.error(`[proxy] Error proxying ${(req as any).url}:`, e);
+        console.error(`[proxy] Error proxying ${backendUrl}:`, e);
         res.statusCode = 502;
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ error: 'Backend unavailable' }));
@@ -105,10 +108,7 @@ export const plugin = (): Plugin => {
   return {
     name: "a2a-handler",
     configureServer(server: ViteDevServer) {
-      // Proxy /sessions/* to backend (session management)
-      server.middlewares.use("/sessions", proxyToBackend());
-      // Proxy /auth/* to backend (authentication)
-      server.middlewares.use("/auth", proxyToBackend());
+      // NOTE: /sessions and /auth are proxied via server.proxy in vite.config.ts
       // Proxy /a2a to backend (existing agent communication)
       server.middlewares.use(
         "/a2a",
