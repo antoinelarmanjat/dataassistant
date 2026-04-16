@@ -1,0 +1,11 @@
+cd ~/dataassistant-main
+# Rebuild frontend
+cd samples/client/lit/custom-components-example && npx vite build --config vite.prod.config.ts && cd -
+# Copy to static_ui
+rm -rf dataagent/agents/bq_assistant/static_ui
+cp -r samples/client/lit/custom-components-example/dist dataagent/agents/bq_assistant/static_ui
+# Build & deploy
+gcloud builds submit --tag gcr.io/antoine-exp/data-assistant --timeout=600
+gcloud run deploy data-assistant --image gcr.io/antoine-exp/data-assistant --region us-central1 --set-env-vars OAUTH_DATA_CLIENT_SECRET=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 --no-allow-unauthenticated
+
+

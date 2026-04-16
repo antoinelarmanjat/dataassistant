@@ -1,0 +1,24 @@
+# Git
+.git
+.gitignore
+
+# Python
+.venv
+**/venv
+**/__pycache__
+*.pyc
+
+# Node (not needed — frontend is pre-built)
+**/node_modules
+**/.wireit
+
+# IDE
+.vscode
+.idea
+.gemini
+
+# Everything except dataagent/ and Dockerfile
+renderers/
+samples/
+tools/
+docs/

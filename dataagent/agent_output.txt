@@ -1,0 +1,153 @@
+Initializing agent with model: gemini-3-flash-preview
+
+--- Starting Conversation ---
+User: Scan my datasets
+
+ ### Created new session: debug_session_id
+
+User > Scan my datasets
+Warning: there are non-text parts in the response: ['function_call'], returning concatenated text result from text parts. Check the full candidates.content.parts accessor to get the full model response.
+BigQueryAssistant > [Calling tool: load_selected_datasets({})]
+BigQueryAssistant > [Tool result: {'result': ['antoine-279922.demo_dataset', 'antoine-279922.bqml_tutorial']}]
+BigQueryAssistant > Welcome back! I found that you were previously working with these datasets:
+* `antoine-279922.demo_dataset`
+* `antoine-279922.bqml_tutorial`
+
+Would you like to continue with these, or should I scan for more? Since you asked to scan, I'll go ahead and see what else is available for you.
+
+
+BigQueryAssistant > [Calling tool: scan_datasets({})]
+BigQueryAssistant > [Tool result: {'result': 'Project: antoine-279922\n  - Dataset: antoine\n  - Dataset: bqml_tutorial\n  - Dataset: ...]
+BigQueryAssistant > I've finished scanning! Here are the datasets I found in your projects:
+
+**Project: antoine-279922**
+* `antoine`
+* `bqml_tutorial` (already in your list)
+* `user_workspace`
+
+Would you like to add any of these to your workspace, or are you all set with your current selection?
+
+--- Agent Response ---
+parts=[Part(
+  function_call=FunctionCall(
+    args={},
+    id='adk-2f4e0024-5a60-4a9a-a3a4-4ce4270f105b',
+    name='load_selected_datasets'
+  ),
+  thought_signature=b'\n\xbd\x02\x01\x8f=k_\xb5\x90\xe3\x8ez\xb3\xe7,\xdf\xcc\t\x84\xab\xf2\x1a\x01.)\xcbN1\xd5\xde]\x9c\x91IVi[5\xa7=\xa9w\x04\x9b\x1d\xf6\x08\xb0\x81\xf7\xf5\xa2\xf8\x82\x93\x87\xdc\x1d~\x15\xdfV\xf7\x04\n\x90\x96\xe6\x00}4\xec1\xbclf\x9d\xb0A:\xa7^VL*\x94-\xb7\xfa\xb7\n\x15\x05\xb7\x86\xa5...'
+)] role='model'
+parts=[Part(
+  function_response=FunctionResponse(
+    id='adk-2f4e0024-5a60-4a9a-a3a4-4ce4270f105b',
+    name='load_selected_datasets',
+    response={
+      'result': [
+        'antoine-279922.demo_dataset',
+        'antoine-279922.bqml_tutorial',
+      ]
+    }
+  )
+)] role='user'
+parts=[Part(
+  text="""Welcome back! I found that you were previously working with these datasets:
+* `antoine-279922.demo_dataset`
+* `antoine-279922.bqml_tutorial`
+
+Would you like to continue with these, or should I scan for more? Since you asked to scan, I'll go ahead and see what else is available for you.
+
+"""
+), Part(
+  function_call=FunctionCall(
+    args={},
+    id='adk-d3ef6150-0ee4-4aac-8fe4-680375a5d705',
+    name='scan_datasets'
+  ),
+  thought_signature=b'\n\xd5\t\x01\x8f=k_+\x04\xa9W\x87i\x1b\x87\xd5m\xbe)Q\xe4 F\xda?\xc3Q7\x89\xd9\x16\xe4y.\x07\xdb\x1e\xf7R\x90\x9f\xfb\x1ao\x8d5\xd2\x16\xb7\xe3\x85\xdf\xc0\xc4 \xd6\x90a.qhd\xe111\xed z\xffa\xdc\xa3A\xad8?9;=\xa3\x9cc_M\x82\xc1\x0e\xf3UboE\x9e\xecdx...'
+)] role='model'
+parts=[Part(
+  function_response=FunctionResponse(
+    id='adk-d3ef6150-0ee4-4aac-8fe4-680375a5d705',
+    name='scan_datasets',
+    response={
+      'result': """Project: antoine-279922
+  - Dataset: antoine
+  - Dataset: bqml_tutorial
+  - Dataset: user_workspace
+Project: sog-visd
+  - No datasets found.
+Project: swapnilcheck-7ee53
+  - No datasets found.
+Project: envix-test
+  - No datasets found.
+Project: chatbot-490815
+  - No datasets found.
+Project: gcs-productivity-planner
+  - No datasets found.
+Project: asset-variety-tracker-ai
+  - No datasets found.
+Project: gp-test-3a1ee
+  - No datasets found.
+Project: immigration-dataverse
+  - No datasets found.
+Project: kf-spark-experiment
+  - No datasets found."""
+    }
+  )
+)] role='user'
+parts=[Part(
+  text="""I've finished scanning! Here are the datasets I found in your projects:
+
+**Project: antoine-279922**
+* `antoine`
+* `bqml_tutorial` (already in your list)
+* `user_workspace`
+
+Would you like to add any of these to your workspace, or are you all set with your current selection?""",
+  thought_signature=b'\n\xd4\x02\x01\x8f=k_\x8dc\xaf\xe0\xfc\xef\xd8Nj\x01\xeb\xd4p\xe3\xa7\x132^\x86\xcd\xb0q#\x8b\xdf\xfa\x03`#\xc3\xd3+m\xe3f\xa4\xbb\xdb\xd6QcoQ\x9f\x90\x07+K\xbd\x01"\xd3M\x15\x84\x01"Y\x0cu2\x05\xe7\xdb\x9b\x91\xc8{\x91;m/\xbf0\xca\xff\x90\x12\x1f1\x16;\x17\x8d\xcc\x90\xfe\x08\xec...'
+)] role='model'
+
+--- Next Turn ---
+User: Save my selection: 'antoine-279922.demo_dataset'
+
+ ### Continue session: debug_session_id
+
+User > Save my selection: 'antoine-279922.demo_dataset'
+BigQueryAssistant > [Calling tool: save_selected_datasets({'selected_datasets': ['antoine-279922.demo_datase...)]
+BigQueryAssistant > [Tool result: {'result': "Dataset 'user_workspace' already exists.\nTable 'selected_datasets' already exists.\nSuc...]
+BigQueryAssistant > Got it! I've updated your workspace. You are now working with:
+
+* `antoine-279922.demo_dataset`
+
+Let me know if there's anything else you'd like to do!
+
+--- Agent Response ---
+parts=[Part(
+  function_call=FunctionCall(
+    args={
+      'selected_datasets': [
+        'antoine-279922.demo_dataset',
+      ]
+    },
+    id='adk-b79c2636-5ad5-4150-87fb-bc21d94e9a2d',
+    name='save_selected_datasets'
+  ),
+  thought_signature=b'\n\xf1\x03\x01\x8f=k_1\xae\xd6\xe1\xc0/]\xc6\x00\xf3\x93\xa5K\xfe\xcd\xefPW\xb1Y\x1c\xe9w\xd3\xd4\xc6\x01w&\\\x9d\xaa7CN\xf7(H\xc6\xd9R\xf0(\xc8\x91\xcb\x81\x81yt\t\xb4\xb9\xd6\xd1\x16\x15\x03\xa4\x05\xbc\xf2\\\x07\xb3\x84\x0b\xb6\xa4\x8b\x9a\xadJ}\xc8\xdd\xc9\x8aS$\xb6\xdc\xa6\xe4\xc77q \xae...'
+)] role='model'
+parts=[Part(
+  function_response=FunctionResponse(
+    id='adk-b79c2636-5ad5-4150-87fb-bc21d94e9a2d',
+    name='save_selected_datasets',
+    response={
+      'result': """Dataset 'user_workspace' already exists.
+Table 'selected_datasets' already exists.
+Successfully saved 1 selections."""
+    }
+  )
+)] role='user'
+parts=[Part(
+  text="""Got it! I've updated your workspace. You are now working with:
+
+* `antoine-279922.demo_dataset`
+
+Let me know if there's anything else you'd like to do!"""
+)] role='model'

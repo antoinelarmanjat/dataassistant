@@ -1,0 +1,28 @@
+# Cloud Run Job definition for background dataset profiling
+#
+# One-time creation:
+#   gcloud run jobs create dataset-profiler \
+#     --image gcr.io/antoine-exp/data-assistant \
+#     --command python,dataagent/agents/bq_assistant/profile_job.py \
+#     --region us-central1 \
+#     --project antoine-exp \
+#     --memory 2Gi \
+#     --cpu 1 \
+#     --task-timeout 60m \
+#     --max-retries 1 \
+#     --service-account 875254624092-compute@developer.gserviceaccount.com \
+#     --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=antoine-exp,DATA_PROJECT=octo-aif-sandbox,GOOGLE_CLOUD_LOCATION=global
+#
+# Manual test:
+#   gcloud run jobs execute dataset-profiler \
+#     --region us-central1 \
+#     --project antoine-exp \
+#     --args="--dataset,bigquery-public-data.stackoverflow,--workspace,user_workspace_antoine_larmanjat"
+#
+# Notes:
+# - Uses the same Docker image as the Cloud Run service (data-assistant)
+# - The serving container submits executions via the Cloud Run v2 Jobs API
+# - The SA needs roles/run.invoker on antoine-exp to submit job executions
+#   (the default Compute Engine SA should already have this)
+# - task-timeout of 30 min covers even the largest datasets (16+ tables, 250+ GB)
+# - max-retries=1 means the job will be retried once on failure

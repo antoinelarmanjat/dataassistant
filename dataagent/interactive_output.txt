@@ -1,0 +1,22 @@
+Initializing agent with model: gemini-3-flash-preview
+
+--- BigQuery Assistant ---
+Type 'exit' to quit.
+
+You > Agent is thinking...
+
+ ### Created new session: debug_session_id
+
+User > Hello
+Warning: there are non-text parts in the response: ['function_call'], returning concatenated text result from text parts. Check the full candidates.content.parts accessor to get the full model response.
+BigQueryAssistant > [Calling tool: load_selected_datasets({})]
+BigQueryAssistant > [Tool result: {'result': ['antoine-279922.demo_dataset', 'antoine-279922.bqml_tutorial']}]
+BigQueryAssistant > Hello! I see you already have some datasets saved in your workspace:
+
+*   `antoine-279922.demo_dataset`
+*   `antoine-279922.bqml_tutorial`
+
+Would you like to work with these, or should we look for more datasets to add?
+
+You > 
+Exiting...

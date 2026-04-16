@@ -1,0 +1,46 @@
+[
+  {
+    "surfaceUpdate": {
+      "surfaceId": "@default",
+      "components": [
+        {
+          "id": "results_card",
+          "component": {
+            "Card": {
+              "title": {
+                "literal": "Query Results (Top 5 rows)"
+              },
+              "child": "main_col"
+            }
+          }
+        },
+        {
+          "id": "table_text",
+          "component": {
+            "Text": {
+              "text": {
+                "literal": "\n| project | theme | file_name | Processed |\n|---|---|---|---|\n| intellij-01 | Android Support | base/src/com/google/idea/blaze/base/qsync/NoAppInspectorBuiltException.java | Y |\n| intellij-01 | Android Support | base/src/com/google/idea/blaze/base/qsync/AppInspectorInfo.java | Y |\n| intellij-01 | Android Support | base/src/com/google/idea/blaze/base/qsync/AppInspectorArtifactTracker.java | Y |\n| intellij-01 | Android Support | base/src/com/google/idea/blaze/base/qsync/AppInspectorBuilder.java | Y |\n| intellij-01 | Android Support | base/src/com/google/idea/blaze/base/qsync/AppInspectorTracker.java | Y |\n"
+              }
+            }
+          }
+        },
+        {
+          "id": "main_col",
+          "component": {
+            "Column": {
+              "children": [
+                "table_text"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "beginRendering": {
+      "surfaceId": "@default",
+      "root": "results_card"
+    }
+  }
+]
