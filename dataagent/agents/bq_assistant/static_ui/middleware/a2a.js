@@ -44,9 +44,50 @@ const createOrGetClient = async () => {
     return client;
 };
 export const plugin = () => {
+    const proxyToBackend = (path) => {
+        return async (req, res, next) => {
+            const backendUrl = `http://localhost:10005${req.url}`;
+            const authHeader = req.headers['authorization'] || '';
+            try {
+                const headers = {};
+                if (authHeader) headers['Authorization'] = String(authHeader);
+                if (req.method === 'POST' || req.method === 'PUT') {
+                    headers['Content-Type'] = req.headers['content-type'] || 'application/json';
+                }
+
+                let body = '';
+                if (req.method === 'POST' || req.method === 'PUT') {
+                    await new Promise((resolve) => {
+                        req.on('data', (chunk) => { body += chunk.toString(); });
+                        req.on('end', resolve);
+                    });
+                }
+
+                const fetchOpts = { method: req.method, headers };
+                if (body) fetchOpts.body = body;
+
+                const backendResponse = await fetch(backendUrl, fetchOpts);
+                const data = await backendResponse.text();
+                res.statusCode = backendResponse.status;
+                res.setHeader('Content-Type', backendResponse.headers.get('content-type') || 'application/json');
+                res.end(data);
+            } catch (e) {
+                console.error(`[proxy] Error proxying ${req.url}:`, e);
+                res.statusCode = 502;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ error: 'Backend unavailable' }));
+            }
+        };
+    };
+
     return {
         name: "a2a-handler",
         configureServer(server) {
+            // Proxy /sessions/* to backend
+            server.middlewares.use("/sessions", proxyToBackend("/sessions"));
+            // Proxy /auth/* to backend
+            server.middlewares.use("/auth", proxyToBackend("/auth"));
+            // Proxy /a2a to backend (existing)
             server.middlewares.use("/a2a", async (req, res, next) => {
                 if (req.method === "POST") {
                     let originalBody = "";

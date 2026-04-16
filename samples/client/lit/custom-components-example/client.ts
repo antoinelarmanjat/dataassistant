@@ -35,9 +35,14 @@ import { componentRegistry } from "@a2ui/lit/ui";
 export class A2UIClient {
   #ready: Promise<void> = Promise.resolve();
   #authToken: string | null = null;
+  #lastSessionId: string | null = null;
 
   get ready() {
     return this.#ready;
+  }
+
+  get lastSessionId() {
+    return this.#lastSessionId;
   }
 
   setAuthToken(token: string | null) {
@@ -128,8 +133,14 @@ export class A2UIClient {
   }
 
   #extractMessages(data: any): v0_8.Types.ServerToClientMessage[] {
+    // Handle new wrapped response format: {session_id, parts}
+    if (data.session_id) {
+      this.#lastSessionId = data.session_id;
+    }
     let items: any[] = [];
-    if (data.messages && Array.isArray(data.messages)) {
+    if (data.parts && Array.isArray(data.parts)) {
+      items = data.parts;
+    } else if (data.messages && Array.isArray(data.messages)) {
       items = data.messages;
     } else {
       items = Array.isArray(data)
