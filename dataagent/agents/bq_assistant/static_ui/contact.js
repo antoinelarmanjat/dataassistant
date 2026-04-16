@@ -176,6 +176,13 @@ let A2UIContactFinder = (() => {
                         };
                         console.log('[Auth] IAP mode — authenticated as:', data.email, '| data authorized:', this.#dataAuthorized);
                         this.#showGreeting(data.email.split('@')[0]);
+                    // Load sessions after IAP auth
+                    this.#loadSessions().then(() => {
+                        // Switch to most recent session if available
+                        if (this.#conversations.length > 0 && !this.#currentSessionId) {
+                            this.#currentSessionId = this.#conversations[0].id;
+                        }
+                    });
                     }
                 }
                 else {
@@ -246,6 +253,12 @@ Type anything to get started — for example, try **"Show my queries"** or **"Sc
                 // Show greeting as the first chat message
                 const firstName = (payload.name || payload.email || '').split(' ')[0];
                 this.#showGreeting(firstName);
+                // Load sessions after OAuth sign-in
+                this.#loadSessions().then(() => {
+                    if (this.#conversations.length > 0 && !this.#currentSessionId) {
+                        this.#currentSessionId = this.#conversations[0].id;
+                    }
+                });
             }
             catch (e) {
                 console.error('[Auth] Failed to decode credential:', e);
@@ -288,6 +301,11 @@ Type anything to get started — for example, try **"Show my queries"** or **"Sc
         #statusMessage_accessor_storage = __runInitializers(this, _private_statusMessage_initializers, 'Thinking...');
         get #statusMessage() { return _private_statusMessage_descriptor.get.call(this); }
         set #statusMessage(value) { return _private_statusMessage_descriptor.set.call(this, value); }
+        // --- Session management state ---
+        #currentSessionId = null;
+        #conversations = [];
+        #sidebarOpen = true;
+        #sessionsLoading = false;
         static { this.styles = [
             unsafeCSS(v0_8.Styles.structuralStyles),
             css `
@@ -300,6 +318,135 @@ Type anything to get started — for example, try **"Show my queries"** or **"Sc
         height: 100vh;
         font-size: 14.5px;
         overflow: hidden;
+      }
+
+      /* Session sidebar */
+      .session-sidebar {
+        width: 260px;
+        min-width: 260px;
+        background: #161616;
+        border-right: 1px solid #2a2a2a;
+        display: flex;
+        flex-direction: column;
+        transition: margin-left 0.25s ease, opacity 0.25s ease;
+        overflow: hidden;
+        flex-shrink: 0;
+      }
+      .session-sidebar.collapsed {
+        margin-left: -260px;
+        opacity: 0;
+        pointer-events: none;
+      }
+      .session-sidebar-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 14px;
+        border-bottom: 1px solid #2a2a2a;
+        flex-shrink: 0;
+      }
+      .session-sidebar-header span {
+        font-size: 13px;
+        font-weight: 600;
+        color: #999;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .new-chat-btn {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(99,102,241,0.15);
+        color: #a5b4fc;
+        border: 1px solid rgba(99,102,241,0.3);
+        padding: 5px 12px;
+        border-radius: 8px;
+        font-size: 12px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .new-chat-btn:hover {
+        background: rgba(99,102,241,0.25);
+        border-color: rgba(99,102,241,0.5);
+      }
+      .session-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px 0;
+      }
+      .session-group-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #555;
+        padding: 10px 14px 4px;
+        font-weight: 600;
+      }
+      .session-item {
+        padding: 10px 14px;
+        cursor: pointer;
+        transition: background 0.15s;
+        border-left: 3px solid transparent;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .session-item:hover {
+        background: #1e1e1e;
+      }
+      .session-item.active {
+        background: rgba(99,102,241,0.1);
+        border-left-color: #6366f1;
+      }
+      .session-item-title {
+        font-size: 13px;
+        color: #ccc;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex: 1;
+      }
+      .session-item.active .session-item-title {
+        color: #e0e0ff;
+      }
+      .session-item-delete {
+        background: none;
+        border: none;
+        color: #555;
+        cursor: pointer;
+        font-size: 14px;
+        padding: 2px;
+        border-radius: 4px;
+        opacity: 0;
+        transition: opacity 0.15s, color 0.15s;
+        flex-shrink: 0;
+        margin-left: 8px;
+      }
+      .session-item:hover .session-item-delete {
+        opacity: 1;
+      }
+      .session-item-delete:hover {
+        color: #ff5555;
+      }
+      .session-empty {
+        padding: 20px 14px;
+        color: #555;
+        font-size: 13px;
+        font-style: italic;
+        text-align: center;
+      }
+      .sidebar-toggle {
+        background: none;
+        border: none;
+        color: #888;
+        cursor: pointer;
+        font-size: 18px;
+        padding: 4px;
+        border-radius: 4px;
+        transition: color 0.15s;
+      }
+      .sidebar-toggle:hover {
+        color: #ccc;
       }
 
       /* Custom scrollbars — all scrollable areas */
@@ -678,6 +825,158 @@ Type anything to get started — for example, try **"Show my queries"** or **"Sc
         #a2uiClient = new A2UIClient();
         #snackbar = undefined;
         #pendingSnackbarMessages = [];
+
+        // --- Session management methods ---
+        async #loadSessions() {
+            this.#sessionsLoading = true;
+            this.requestUpdate();
+            try {
+                const headers = {};
+                if (this.#authUser?.credential) {
+                    headers['Authorization'] = `Bearer ${this.#authUser.credential}`;
+                }
+                const resp = await fetch('/sessions', { headers });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    this.#conversations = data.conversations || [];
+                }
+            } catch (e) {
+                console.warn('[Sessions] Failed to load:', e);
+            }
+            this.#sessionsLoading = false;
+            this.requestUpdate();
+        }
+
+        async #newConversation() {
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (this.#authUser?.credential) {
+                    headers['Authorization'] = `Bearer ${this.#authUser.credential}`;
+                }
+                const resp = await fetch('/sessions', {
+                    method: 'POST',
+                    headers,
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    this.#currentSessionId = data.session_id;
+                    this.#chatHistory = [];
+                    this.#processor = v0_8.Data.createSignalA2uiMessageProcessor();
+                    this.renderVersion++;
+                    this.requestUpdate();
+                    // Show greeting
+                    const firstName = (this.#authUser?.name || this.#authUser?.email || '').split(' ')[0];
+                    this.#showGreeting(firstName);
+                    // Reload sidebar
+                    await this.#loadSessions();
+                }
+            } catch (e) {
+                console.error('[Sessions] Failed to create:', e);
+            }
+        }
+
+        async #switchSession(sessionId) {
+            if (sessionId === this.#currentSessionId) return;
+            this.#currentSessionId = sessionId;
+            this.#chatHistory = [];
+            this.#processor = v0_8.Data.createSignalA2uiMessageProcessor();
+            this.renderVersion++;
+            this.requestUpdate();
+
+            try {
+                const headers = {};
+                if (this.#authUser?.credential) {
+                    headers['Authorization'] = `Bearer ${this.#authUser.credential}`;
+                }
+                const resp = await fetch(`/sessions/${sessionId}`, { headers });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    // Replay messages into chat history
+                    const history = [];
+                    for (const msg of (data.messages || [])) {
+                        const role = msg.role === 'user' ? 'user' : 'agent';
+                        if (msg.text && msg.text.trim()) {
+                            history.push({ role, content: msg.text });
+                        }
+                    }
+                    if (history.length === 0) {
+                        const firstName = (this.#authUser?.name || this.#authUser?.email || '').split(' ')[0];
+                        this.#showGreeting(firstName);
+                    } else {
+                        this.#chatHistory = history;
+                    }
+                }
+            } catch (e) {
+                console.error('[Sessions] Failed to load session:', e);
+            }
+            this.requestUpdate();
+            // Scroll to bottom
+            requestAnimationFrame(() => {
+                const scroll = this.renderRoot?.querySelector('.left-panel-scroll');
+                if (scroll) scroll.scrollTop = scroll.scrollHeight;
+            });
+        }
+
+        async #deleteSession(sessionId, evt) {
+            evt.stopPropagation();
+            try {
+                const headers = {};
+                if (this.#authUser?.credential) {
+                    headers['Authorization'] = `Bearer ${this.#authUser.credential}`;
+                }
+                await fetch(`/sessions/${sessionId}`, {
+                    method: 'DELETE',
+                    headers,
+                });
+                // If deleted the current session, start fresh
+                if (sessionId === this.#currentSessionId) {
+                    await this.#newConversation();
+                } else {
+                    await this.#loadSessions();
+                }
+            } catch (e) {
+                console.error('[Sessions] Failed to delete:', e);
+            }
+        }
+
+        #renderSessionList() {
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const yesterday = new Date(today.getTime() - 86400000);
+            const lastWeek = new Date(today.getTime() - 7 * 86400000);
+
+            const groups = { today: [], yesterday: [], lastWeek: [], older: [] };
+            for (const conv of this.#conversations) {
+                const d = new Date((conv.last_active || 0) * 1000);
+                if (d >= today) groups.today.push(conv);
+                else if (d >= yesterday) groups.yesterday.push(conv);
+                else if (d >= lastWeek) groups.lastWeek.push(conv);
+                else groups.older.push(conv);
+            }
+
+            const renderGroup = (label, items) => {
+                if (items.length === 0) return nothing;
+                return html`
+                    <div class="session-group-label">${label}</div>
+                    ${items.map(c => html`
+                        <div class="session-item ${c.id === this.#currentSessionId ? 'active' : ''}"
+                             @click=${() => this.#switchSession(c.id)}>
+                            <span class="session-item-title">${c.title || 'Untitled'}</span>
+                            <button class="session-item-delete" @click=${(e) => this.#deleteSession(c.id, e)} title="Delete">
+                                <span class="g-icon" style="font-size: 14px;">delete</span>
+                            </button>
+                        </div>
+                    `)}
+                `;
+            };
+
+            return html`
+                ${renderGroup('Today', groups.today)}
+                ${renderGroup('Yesterday', groups.yesterday)}
+                ${renderGroup('Last 7 days', groups.lastWeek)}
+                ${renderGroup('Older', groups.older)}
+            `;
+        }
         #startResize = (e) => {
             e.preventDefault();
             const handle = this.renderRoot.querySelector('#resizeHandle');
@@ -703,9 +1002,14 @@ Type anything to get started — for example, try **"Show my queries"** or **"Sc
         render() {
             return html `
       <header style="position: sticky; top: 0; background: #1e1e1e; z-index: 100; padding: 12px 24px; border-bottom: 1px solid #333; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;">
-        <h1 style="margin: 0; font-size: 1.1rem; text-align: left; color: #ffffff; font-weight: 500;">
-          Data Assistant
-        </h1>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <button class="sidebar-toggle" @click=${() => { this.#sidebarOpen = !this.#sidebarOpen; this.requestUpdate(); }} title="Toggle sidebar">
+            <span class="g-icon">menu</span>
+          </button>
+          <h1 style="margin: 0; font-size: 1.1rem; text-align: left; color: #ffffff; font-weight: 500;">
+            Data Assistant
+          </h1>
+        </div>
         ${this.#authUser ? html `
           <div style="display: flex; align-items: center; gap: 10px;">
             ${this.#authUser.picture ? html `<img src="${this.#authUser.picture}" alt="" style="width: 28px; height: 28px; border-radius: 50%;" referrerpolicy="no-referrer">` : nothing}
@@ -738,6 +1042,21 @@ Type anything to get started — for example, try **"Show my queries"** or **"Sc
       ` : html `
       
       <div class="split-container">
+        <!-- SESSION SIDEBAR -->
+        <div class="session-sidebar ${this.#sidebarOpen ? '' : 'collapsed'}">
+          <div class="session-sidebar-header">
+            <span>Conversations</span>
+            <button class="new-chat-btn" @click=${() => this.#newConversation()}>
+              <span class="g-icon" style="font-size: 16px;">add</span> New
+            </button>
+          </div>
+          <div class="session-list">
+            ${this.#sessionsLoading ? html`<div class="session-empty">Loading...</div>` :
+              this.#conversations.length === 0 ? html`<div class="session-empty">No conversations yet</div>` :
+              this.#renderSessionList()}
+          </div>
+        </div>
+        
         <!-- LEFT PANEL: Chat conversation -->
         <div class="left-panel" id="leftPanel">
           <div class="left-panel-scroll">
@@ -796,6 +1115,7 @@ Type anything to get started — for example, try **"Show my queries"** or **"Sc
                 }
                 const message = {
                     request: body,
+                    session_id: this.#currentSessionId,
                 };
                 this.#chatHistory = [...this.#chatHistory, { role: "user", content: body }];
                 // Clear and reset textarea
@@ -909,6 +1229,7 @@ Type anything to get started — for example, try **"Show my queries"** or **"Sc
                             timestamp: new Date().toISOString(),
                             context,
                         },
+                        session_id: this.#currentSessionId,
                     };
                     await this.#sendAndProcessMessage(message);
                 }}
@@ -953,7 +1274,7 @@ Type anything to get started — for example, try **"Show my queries"** or **"Sc
                         title = 'the previous query';
                     const body = `${action.prefix} ${title}`;
                     this.#chatHistory = [...this.#chatHistory, { role: "user", content: body }];
-                    const message = { request: body };
+                    const message = { request: body, session_id: this.#currentSessionId };
                     await this.#sendAndProcessMessage(message);
                 }}
                 >
@@ -1015,8 +1336,15 @@ Type anything to get started — for example, try **"Show my queries"** or **"Sc
             if (newHistoryItems.length > 0) {
                 this.#chatHistory = [...this.#chatHistory, ...newHistoryItems];
             }
-            this.renderVersion++; // Force re-render of surfaces
+            this.#requesting = false;
             this.requestUpdate();
+            // Update session ID and refresh sidebar after each exchange
+            const newSid = this.#a2uiClient.lastSessionId;
+            if (newSid && newSid !== this.#currentSessionId) {
+                this.#currentSessionId = newSid;
+            }
+            // Refresh session list to pick up title changes
+            this.#loadSessions();
         }
         async #sendMessage(message) {
             try {

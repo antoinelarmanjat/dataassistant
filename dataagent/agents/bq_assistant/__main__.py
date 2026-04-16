@@ -3,6 +3,8 @@ import sys
 import logging
 import json
 import uuid
+import re
+from datetime import datetime, timezone
 import click
 from starlette.middleware.cors import CORSMiddleware
 from starlette.staticfiles import StaticFiles
@@ -47,8 +49,17 @@ OAUTH_CLIENT_ID = "845556473362-hn577kpi7nco8muojdsv09svttdcjd9s.apps.googleuser
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Persistent session context ID (matches what the Vite middleware did)
-_session_context_id = str(uuid.uuid4())
+
+def _email_to_user_id(email: str | None) -> str:
+    """Convert an email address to a stable ADK user_id.
+    
+    e.g. 'antoine@google.com' -> 'user_antoine_google_com'
+    Falls back to 'anonymous' for local dev without auth.
+    """
+    if not email:
+        return "anonymous"
+    safe = re.sub(r'[^a-zA-Z0-9]', '_', email.lower())
+    return f"user_{safe}"
 
 
 def _extract_iap_user_email(request: Request) -> str | None:
@@ -515,6 +526,137 @@ def _tool_response_to_status(tool_name: str) -> str:
     return mapping.get(tool_name, '')
 
 
+# ---------------------------------------------------------------------------
+# Session management endpoints
+# ---------------------------------------------------------------------------
+
+async def list_sessions_handler(request: Request):
+    """GET /sessions — List the user's conversations."""
+    auth_email = _get_auth_email(request)
+    if not auth_email and AUTH_REQUIRED:
+        return JSONResponse({"error": "Auth required"}, status_code=401)
+
+    user_id = _email_to_user_id(auth_email)
+    try:
+        response = await _runner.session_service.list_sessions(
+            app_name=_runner.app_name, user_id=user_id
+        )
+    except Exception as e:
+        logger.error(f"[Sessions] list_sessions failed: {e}")
+        return JSONResponse({"conversations": []})
+
+    conversations = []
+    for session in response.sessions:
+        conversations.append({
+            "id": session.id,
+            "title": session.state.get("conversation_title", "New conversation"),
+            "last_active": session.last_update_time,
+            "default_dataset": session.state.get("default_dataset"),
+        })
+
+    # Sort by last_active descending (most recent first)
+    conversations.sort(key=lambda c: c["last_active"] or 0, reverse=True)
+    return JSONResponse({"conversations": conversations})
+
+
+async def create_session_handler(request: Request):
+    """POST /sessions — Create a new conversation."""
+    auth_email = _get_auth_email(request)
+    if not auth_email and AUTH_REQUIRED:
+        return JSONResponse({"error": "Auth required"}, status_code=401)
+
+    user_id = _email_to_user_id(auth_email)
+    session_id = str(uuid.uuid4())
+
+    session = await _runner.session_service.create_session(
+        app_name=_runner.app_name,
+        user_id=user_id,
+        state={
+            "conversation_title": "New conversation",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "user_email": auth_email or "",
+        },
+        session_id=session_id,
+    )
+    logger.info(f"[Sessions] Created session {session.id} for {user_id}")
+    return JSONResponse({"session_id": session.id})
+
+
+async def get_session_handler(request: Request):
+    """GET /sessions/{session_id} — Load conversation history for resume."""
+    session_id = request.path_params["session_id"]
+    auth_email = _get_auth_email(request)
+    if not auth_email and AUTH_REQUIRED:
+        return JSONResponse({"error": "Auth required"}, status_code=401)
+
+    user_id = _email_to_user_id(auth_email)
+
+    session = await _runner.session_service.get_session(
+        app_name=_runner.app_name,
+        user_id=user_id,
+        session_id=session_id,
+    )
+    if not session:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+
+    # Extract user/assistant message pairs from events
+    messages = []
+    for event in session.events:
+        if not event.content or not event.content.parts:
+            continue
+
+        text = ""
+        for part in event.content.parts:
+            if hasattr(part, 'text') and part.text:
+                text += part.text
+            # Skip tool calls / function responses — internal
+            if hasattr(part, 'function_call') and part.function_call:
+                text = ""  # Don't surface tool-call events
+                break
+            if hasattr(part, 'function_response') and part.function_response:
+                text = ""
+                break
+
+        if text.strip():
+            messages.append({
+                "role": event.content.role,  # "user" or "model"
+                "text": text,
+            })
+
+    return JSONResponse({
+        "session_id": session.id,
+        "title": session.state.get("conversation_title", "Untitled"),
+        "created_at": session.state.get("created_at"),
+        "messages": messages,
+    })
+
+
+async def delete_session_handler(request: Request):
+    """DELETE /sessions/{session_id} — Delete a conversation."""
+    session_id = request.path_params["session_id"]
+    auth_email = _get_auth_email(request)
+    if not auth_email and AUTH_REQUIRED:
+        return JSONResponse({"error": "Auth required"}, status_code=401)
+
+    user_id = _email_to_user_id(auth_email)
+    try:
+        await _runner.session_service.delete_session(
+            app_name=_runner.app_name,
+            user_id=user_id,
+            session_id=session_id,
+        )
+        logger.info(f"[Sessions] Deleted session {session_id}")
+    except Exception as e:
+        logger.error(f"[Sessions] Delete failed: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+    return JSONResponse({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# /a2a proxy — now with per-conversation session support
+# ---------------------------------------------------------------------------
+
 async def a2a_proxy_handler(request: Request):
     """
     Direct /a2a POST handler — replaces the Node.js Vite middleware.
@@ -522,6 +664,9 @@ async def a2a_proxy_handler(request: Request):
     
     Now streams intermediate progress events so the frontend spinner text
     updates live as the agent works through its pipeline steps.
+    
+    The frontend sends {request: "...", session_id: "..."} to route messages
+    to the correct conversation session.
     """
     body = await request.body()
     body_str = body.decode('utf-8')
@@ -531,12 +676,15 @@ async def a2a_proxy_handler(request: Request):
     if not auth_email and AUTH_REQUIRED:
         return JSONResponse({"error": "Authentication required. Please sign in."}, status_code=401)
 
+    user_id = _email_to_user_id(auth_email)
+
     # Parse body: could be JSON (UI event) or plain text (user query)
     query = ""
+    session_id = None
     try:
         parsed = json.loads(body_str)
         if isinstance(parsed, dict):
-            # JSON UI event — extract request field or stringify
+            session_id = parsed.get("session_id")
             if 'request' in parsed:
                 query = parsed['request']
             elif 'text' in parsed:
@@ -551,7 +699,12 @@ async def a2a_proxy_handler(request: Request):
     if not query.strip():
         return JSONResponse({"error": "Empty query"}, status_code=400)
 
-    logger.info(f"[/a2a proxy] Query: {query[:100]}...")
+    # If no session_id provided, create a new one (backward compat)
+    if not session_id:
+        session_id = str(uuid.uuid4())
+        logger.info(f"[/a2a proxy] No session_id provided, created: {session_id}")
+
+    logger.info(f"[/a2a proxy] Query: {query[:100]}... | session={session_id[:8]}")
 
     # Stream the response as SSE — with intermediate progress chunks
     async def event_stream():
@@ -564,21 +717,25 @@ async def a2a_proxy_handler(request: Request):
 
             session = await _runner.session_service.get_session(
                 app_name=_runner.app_name,
-                user_id="remote_user",
-                session_id=_session_context_id,
+                user_id=user_id,
+                session_id=session_id,
             )
             if session is None:
                 await _runner.session_service.create_session(
                     app_name=_runner.app_name,
-                    user_id="remote_user",
-                    state={},
-                    session_id=_session_context_id,
+                    user_id=user_id,
+                    state={
+                        "conversation_title": "New conversation",
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "user_email": auth_email or "",
+                    },
+                    session_id=session_id,
                 )
 
             # Inject user email into session state
             if auth_email:
                 try:
-                    actual_session = _runner.session_service.sessions[_runner.app_name]["remote_user"][_session_context_id]
+                    actual_session = _runner.session_service.sessions[_runner.app_name][user_id][session_id]
                     actual_session.state['user_email'] = auth_email
                 except Exception:
                     pass
@@ -588,8 +745,8 @@ async def a2a_proxy_handler(request: Request):
             event_count = 0
 
             async for event in _runner.run_async(
-                user_id="remote_user",
-                session_id=_session_context_id,
+                user_id=user_id,
+                session_id=session_id,
                 run_config=run_config.RunConfig(
                     streaming_mode=run_config.StreamingMode.SSE,
                     max_llm_calls=30,
@@ -623,6 +780,21 @@ async def a2a_proxy_handler(request: Request):
                     
                     if current_text:
                         final_text = current_text
+
+            # Auto-title: after the first exchange, set the conversation title
+            try:
+                updated_session = await _runner.session_service.get_session(
+                    app_name=_runner.app_name,
+                    user_id=user_id,
+                    session_id=session_id,
+                )
+                if updated_session and updated_session.state.get("conversation_title") == "New conversation":
+                    title = query[:60].strip()
+                    if len(query) > 60:
+                        title += "..."
+                    updated_session.state["conversation_title"] = title
+            except Exception:
+                pass
 
             # Gather a2ui payloads from module-level variable.
             # This bypasses ADK session state which doesn't reliably
@@ -668,7 +840,8 @@ async def a2a_proxy_handler(request: Request):
             if not parts:
                 parts.append({"kind": "text", "text": "Task completed without output."})
 
-            yield f"data: {json.dumps(parts)}\n\n"
+            # Include session_id in response so frontend can track it
+            yield f"data: {json.dumps({"session_id": session_id, "parts": parts})}\n\n"
 
         except Exception as e:
             logger.error(f"[/a2a proxy] Error: {e}")
@@ -728,6 +901,11 @@ def main(host, port):
 
     # ---- Add direct /a2a proxy route (replaces Vite middleware in production) ----
     app.routes.insert(0, Route("/a2a", a2a_proxy_handler, methods=["POST"]))
+    # ---- Session management endpoints ----
+    app.routes.insert(0, Route("/sessions", list_sessions_handler, methods=["GET"]))
+    app.routes.insert(0, Route("/sessions", create_session_handler, methods=["POST"]))
+    app.routes.insert(0, Route("/sessions/{session_id}", get_session_handler, methods=["GET"]))
+    app.routes.insert(0, Route("/sessions/{session_id}", delete_session_handler, methods=["DELETE"]))
     # ---- Auth endpoints ----
     app.routes.insert(0, Route("/auth/user", auth_user_handler, methods=["GET"]))
     app.routes.insert(0, Route("/auth/authorize", auth_authorize_handler, methods=["GET"]))
