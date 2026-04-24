@@ -25,7 +25,8 @@ RUN pip install --no-cache-dir \
     "click" \
     "sse-starlette" \
     "sqlalchemy>=2.0" \
-    "aiosqlite"
+    "aiosqlite" \
+    "asyncpg"
 
 # Copy backend code + pre-built frontend (in static_ui/)
 COPY dataagent/ /app/dataagent/
@@ -49,3 +50,4 @@ ENV OAUTH_DATA_CLIENT_ID=875254624092-6dibq0ems3u2gike0lr051h3785374a5.apps.goog
 EXPOSE 8080
 
 CMD ["python", "__main__.py", "--host", "0.0.0.0"]
+# Cache bust: 1776364269

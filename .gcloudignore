@@ -1,0 +1,40 @@
+# Git
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+venv/
+
+# Node
+node_modules/
+.wireit/
+dist/
+*.tsc
+
+# IDE
+.vscode/
+.idea/
+
+# Samples (not needed for Cloud Run)
+samples/
+
+# Renderers source (compiled output is in static_ui/)
+renderers/
+
+# Local dev files
+sessions.db
+*.db
+.env
+.env.*
+
+# Gemini agent data
+.gemini/
+
+# Docs
+docs/
+*.md
+LICENSE

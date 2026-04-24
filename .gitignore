@@ -25,3 +25,6 @@ Thumbs.db
 # CRD setup script (local to workstation)
 setup_crd_persist.sh
 setup_crd.sh
+
+# Database files
+*.db

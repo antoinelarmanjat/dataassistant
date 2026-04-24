@@ -807,13 +807,70 @@ Type anything to get started — for example, try **"Show my queries"** or **"Sc
       const resp = await fetch(`/sessions/${sessionId}`, { headers });
       if (resp.ok) {
         const data = await resp.json();
-        const history: {role: "user" | "agent", content?: string, isSurface?: boolean, surfaceId?: string}[] = [];
-        for (const msg of (data.messages || [])) {
+
+        // Build text message list first
+        const textMessages: {role: "user" | "agent", content: string, index: number}[] = [];
+        for (const [i, msg] of (data.messages || []).entries()) {
           const role = msg.role === 'user' ? 'user' as const : 'agent' as const;
           if (msg.text && msg.text.trim()) {
-            history.push({ role, content: msg.text });
+            textMessages.push({ role, content: msg.text, index: i });
           }
         }
+
+        // Replay a2ui surfaces through the processor so the right panel renders
+        const surfaceInsertions: Map<number, string[]> = new Map(); // after_message -> surfaceIds
+        if (data.surfaces && data.surfaces.length > 0) {
+          for (const surface of data.surfaces) {
+            try {
+              this.#processor.processMessages(surface.a2ui);
+            } catch (e) {
+              console.warn('[Sessions] Failed to process a2ui surface:', e);
+            }
+          }
+          // Collect all rendered surface IDs
+          const allSurfaceIds = [...this.#processor.getSurfaces().keys()];
+          console.log(`[Sessions] Restored ${allSurfaceIds.length} surfaces from ${data.surfaces.length} surface events`);
+
+          // Map surfaces to their position in the message list.
+          // Each surface has an `after_message` index telling us where it appeared.
+          for (const surface of data.surfaces) {
+            const afterIdx = surface.after_message ?? -1;
+            // Extract surfaceIds from the a2ui payloads
+            for (const payload of surface.a2ui) {
+              const sid = payload?.surfaceUpdate?.surfaceId || payload?.beginRendering?.surfaceId;
+              if (sid && this.#processor.getSurfaces().has(sid)) {
+                if (!surfaceInsertions.has(afterIdx)) {
+                  surfaceInsertions.set(afterIdx, []);
+                }
+                const list = surfaceInsertions.get(afterIdx)!;
+                if (!list.includes(sid)) {
+                  list.push(sid);
+                }
+              }
+            }
+          }
+        }
+
+        // Interleave text messages and surface entries in correct order
+        const history: {role: "user" | "agent", content?: string, isSurface?: boolean, surfaceId?: string}[] = [];
+        for (const msg of textMessages) {
+          history.push({ role: msg.role, content: msg.content });
+          // Insert any surfaces that appeared after this message
+          const surfacesHere = surfaceInsertions.get(msg.index);
+          if (surfacesHere) {
+            for (const sid of surfacesHere) {
+              history.push({ role: 'agent', isSurface: true, surfaceId: sid });
+            }
+            surfaceInsertions.delete(msg.index);
+          }
+        }
+        // Append any remaining surfaces (e.g. after_message=-1 or unmatched)
+        for (const [, sids] of surfaceInsertions) {
+          for (const sid of sids) {
+            history.push({ role: 'agent', isSurface: true, surfaceId: sid });
+          }
+        }
+
         if (history.length === 0) {
           const firstName = (this.#authUser?.name || this.#authUser?.email || '').split(' ')[0];
           this.#showGreeting(firstName);
@@ -824,6 +881,7 @@ Type anything to get started — for example, try **"Show my queries"** or **"Sc
     } catch (e) {
       console.error('[Sessions] Failed to load session:', e);
     }
+    this.renderVersion++;
     this.requestUpdate();
     requestAnimationFrame(() => {
       const scroll = this.renderRoot?.querySelector('.left-panel-scroll');

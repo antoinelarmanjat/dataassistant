@@ -604,9 +604,26 @@ async def get_session_handler(request: Request):
     if not session:
         return JSONResponse({"error": "Not found"}, status_code=404)
 
-    # Extract user/assistant message pairs from events
+    # Extract user/assistant message pairs AND a2ui surfaces from events.
+    # Surfaces are stored in event actions.state_delta.pending_bq_a2ui
+    # and contain the full table/chart payloads needed to reconstruct
+    # the right-hand panel when the user switches conversations.
     messages = []
+    surfaces = []  # List of a2ui payloads in chronological order
+    msg_index = -1  # Track which message index each surface follows
+
     for event in session.events:
+        # --- Extract a2ui payloads from state_delta ---
+        if hasattr(event, 'actions') and event.actions:
+            state_delta = event.actions.state_delta or {}
+            a2ui = state_delta.get('pending_bq_a2ui')
+            if a2ui and isinstance(a2ui, list):
+                surfaces.append({
+                    "after_message": msg_index,  # placed after this message
+                    "a2ui": a2ui,
+                })
+
+        # --- Extract text messages ---
         if not event.content or not event.content.parts:
             continue
 
@@ -627,12 +644,16 @@ async def get_session_handler(request: Request):
                 "role": event.content.role,  # "user" or "model"
                 "text": text,
             })
+            msg_index = len(messages) - 1
+
+    logger.info(f"[Sessions] Returning {len(messages)} messages and {len(surfaces)} surfaces for session {session_id[:8]}...")
 
     return JSONResponse({
         "session_id": session.id,
         "title": session.state.get("conversation_title", "Untitled"),
         "created_at": session.state.get("created_at"),
         "messages": messages,
+        "surfaces": surfaces,
     })
 
 
@@ -866,11 +887,13 @@ async def a2a_proxy_handler(request: Request):
                 parts.append({"kind": "text", "text": "Task completed without output."})
 
             # Include session_id in response so frontend can track it
-            yield f"data: {json.dumps({"session_id": session_id, "parts": parts})}\n\n"
+            payload = json.dumps({"session_id": session_id, "parts": parts})
+            yield f"data: {payload}\n\n"
 
         except Exception as e:
             logger.error(f"[/a2a proxy] Error: {e}")
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            error_payload = json.dumps({'error': str(e)})
+            yield f"data: {error_payload}\n\n"
 
     return StreamingResponse(
         event_stream(),
